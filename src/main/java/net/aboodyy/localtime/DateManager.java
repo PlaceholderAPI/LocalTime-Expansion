@@ -20,7 +20,7 @@ public class DateManager implements Listener {
 
     private final Map<UUID, String> timezones;
     private final Map<String, String> cache;
-    private int retryDelay = 0;
+    private int retryDelay;
 
     DateManager() {
         this.timezones = new HashMap<>();
@@ -86,6 +86,14 @@ public class DateManager implements Listener {
                 if (timezone.equalsIgnoreCase("undefined")) {
                     Bukkit.getLogger().info(FAILED);
                     timezone = TimeZone.getDefault().getID();
+                    String finalTimezone = timezone;
+                    new BukkitRunnable() {
+                        @Override
+                        public void run() {
+                            timezones.put(player.getUniqueId(), finalTimezone);
+                        }
+                    }.runTaskLaterAsynchronously(PlaceholderAPIPlugin.getInstance(), retryDelay);
+                    return;
                 }
 
                 timezones.put(player.getUniqueId(), timezone);
