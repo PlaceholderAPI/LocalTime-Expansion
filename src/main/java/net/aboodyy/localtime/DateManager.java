@@ -19,9 +19,13 @@ import java.util.*;
 public class DateManager implements Listener {
 
     private final Map<UUID, String> timezones;
+    private final Map<String, String> cache;
+    private int retryDelay = 0;
 
     DateManager() {
-        timezones = new HashMap<>();
+        this.timezones = new HashMap<>();
+        this.cache = new HashMap<>();
+        this.retryDelay = retryDelay;
     }
 
     public String getDate(String format, String timezone) {
@@ -35,16 +39,23 @@ public class DateManager implements Listener {
 
     public String getTimeZone(Player player) {
         final String FAILED = "[LocalTime] Couldn't get " + player.getName() + "'s timezone. Will use default timezone.";
-        String timezone = TimeZone.getDefault().getID();
+        String timezone = cache.get(player.getUniqueId().toString());
 
-        if (timezones.containsKey(player.getUniqueId()))
-            return timezones.get(player.getUniqueId());
+        if (timezone != null) {
+            return timezone;
+        }
+
+        timezone = timezones.get(player.getUniqueId());
+        if (timezone != null) {
+            return timezone;
+        }
 
         InetSocketAddress address = player.getAddress();
-        timezones.put(player.getUniqueId(), timezone);
+        timezone = TimeZone.getDefault().getID();
 
         if (address == null) {
             Bukkit.getLogger().info(FAILED);
+            cache.put(player.getUniqueId().toString(), timezone);
             return timezone;
         }
 
@@ -58,17 +69,18 @@ public class DateManager implements Listener {
                     URLConnection connection = api.openConnection();
                     connection.setConnectTimeout(5000);
                     connection.setReadTimeout(5000);
+                    connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
                     BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    String response = bufferedReader.readLine();
-                    if (response == null || response.isEmpty()) {
+                    timezone = bufferedReader.readLine();
+
+                    if (timezone == null) {
                         timezone = "undefined";
                     } else {
-                        timezone = response.trim();
+                        cache.put(player.getUniqueId().toString(), timezone);
                     }
                 } catch (Exception e) {
                     timezone = "undefined";
-                    Bukkit.getLogger().warning("[LocalTime] Failed to retrieve timezone for " + player.getName() + " from ipapi.co: " + e.getMessage());
                 }
 
                 if (timezone.equalsIgnoreCase("undefined")) {
@@ -80,16 +92,18 @@ public class DateManager implements Listener {
             }
         }.runTaskAsynchronously(PlaceholderAPIPlugin.getInstance());
 
-        return timezones.get(player.getUniqueId());
+        return timezone;
     }
 
     public void clear() {
         timezones.clear();
+        cache.clear();
     }
 
     @SuppressWarnings("unused")
     @EventHandler
     public void onLeave(PlayerQuitEvent e) {
         timezones.remove(e.getPlayer().getUniqueId());
+        cache.remove(e.getPlayer().getUniqueId().toString());
     }
 }
