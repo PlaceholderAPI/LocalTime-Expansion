@@ -1,23 +1,3 @@
-/*
-
-    LocalTime Expansion - Provides PlaceholderAPI placeholders to give player's local time
-    Copyright (C) 2020 aBooDyy
-
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
-
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
- */
-
 package net.aboodyy.localtime;
 
 import me.clip.placeholderapi.PlaceholderAPIPlugin;
@@ -76,11 +56,19 @@ public class DateManager implements Listener {
                 try {
                     URL api = new URL("https://ipapi.co/" + address.getAddress().getHostAddress() + "/timezone/");
                     URLConnection connection = api.openConnection();
+                    connection.setConnectTimeout(5000);
+                    connection.setReadTimeout(5000);
 
                     BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    timezone = bufferedReader.readLine();
+                    String response = bufferedReader.readLine();
+                    if (response == null || response.isEmpty()) {
+                        timezone = "undefined";
+                    } else {
+                        timezone = response.trim();
+                    }
                 } catch (Exception e) {
                     timezone = "undefined";
+                    Bukkit.getLogger().warning("[LocalTime] Failed to retrieve timezone for " + player.getName() + " from ipapi.co: " + e.getMessage());
                 }
 
                 if (timezone.equalsIgnoreCase("undefined")) {
