@@ -1,12 +1,10 @@
 package net.aboodyy.localtime;
 
-import me.clip.placeholderapi.PlaceholderAPIPlugin;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -22,7 +20,7 @@ public class DateManager implements Listener {
     private final Map<String, String> cache;
     private int retryDelay;
 
-    DateManager() {
+    public DateManager() {
         this.timezones = new HashMap<>();
         this.cache = new HashMap<>();
         this.retryDelay = retryDelay;
@@ -59,46 +57,36 @@ public class DateManager implements Listener {
             return timezone;
         }
 
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                String timezone;
+        String finalTimezone = timezone;
+        new Thread(() -> {
+            String timeZone;
 
-                try {
-                    URL api = new URL("https://ipapi.co/" + address.getAddress().getHostAddress() + "/timezone/");
-                    URLConnection connection = api.openConnection();
-                    connection.setConnectTimeout(5000);
-                    connection.setReadTimeout(5000);
-                    connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            try {
+                URL api = new URL("https://ipapi.co/" + address.getAddress().getHostAddress() + "/timezone/");
+                URLConnection connection = api.openConnection();
+                connection.setConnectTimeout(5000);
+                connection.setReadTimeout(5000);
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
-                    BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    timezone = bufferedReader.readLine();
+                BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                timeZone = bufferedReader.readLine();
 
-                    if (timezone == null) {
-                        timezone = "undefined";
-                    } else {
-                        cache.put(player.getUniqueId().toString(), timezone);
-                    }
-                } catch (Exception e) {
-                    timezone = "undefined";
+                if (timeZone == null) {
+                    timeZone = "undefined";
+                } else {
+                    cache.put(player.getUniqueId().toString(), timeZone);
                 }
-
-                if (timezone.equalsIgnoreCase("undefined")) {
-                    Bukkit.getLogger().info(FAILED);
-                    timezone = TimeZone.getDefault().getID();
-                    String finalTimezone = timezone;
-                    new BukkitRunnable() {
-                        @Override
-                        public void run() {
-                            timezones.put(player.getUniqueId(), finalTimezone);
-                        }
-                    }.runTaskLaterAsynchronously(PlaceholderAPIPlugin.getInstance(), retryDelay);
-                    return;
-                }
-
-                timezones.put(player.getUniqueId(), timezone);
+            } catch (Exception e) {
+                timeZone = "undefined";
             }
-        }.runTaskAsynchronously(PlaceholderAPIPlugin.getInstance());
+
+            if (timeZone.equalsIgnoreCase("undefined")) {
+                Bukkit.getLogger().info(FAILED);
+                timeZone = finalTimezone;
+            }
+
+            timezones.put(player.getUniqueId(), timeZone);
+        }).start();
 
         return timezone;
     }
