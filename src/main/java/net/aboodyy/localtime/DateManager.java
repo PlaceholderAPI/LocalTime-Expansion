@@ -88,24 +88,32 @@ public class DateManager implements Listener {
         final String timezoneFinal = timezone;
         CompletableFuture<String> futureTimezone = CompletableFuture.supplyAsync(() -> {
             String result = "undefined";
+            int retries = 3;
 
-            try {
-                URL api = new URL("https://ipapi.co/" + address.getAddress().getHostAddress() + "/timezone/");
-                URLConnection connection = api.openConnection();
-                connection.setConnectTimeout(5000);
-                connection.setReadTimeout(5000);
-                connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+            while (retries-- > 0) {
+                try {
+                    URL api = new URL("https://ipapi.co/" + address.getAddress().getHostAddress() + "/timezone/");
+                    URLConnection connection = api.openConnection();
+                    connection.setConnectTimeout(5000);
+                    connection.setReadTimeout(5000);
+                    connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
-                BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                result = bufferedReader.readLine();
+                    BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                    result = bufferedReader.readLine();
 
-                if (result == null) {
+                    if (result == null) {
+                        result = "undefined";
+                    } else {
+                        cache.put(player.getUniqueId().toString(), result);
+                    }
+                    break; // exit loop if successful
+                } catch (Exception e) {
                     result = "undefined";
-                } else {
-                    cache.put(player.getUniqueId().toString(), result);
+                    Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + e.getMessage());
+                    try {
+                        Thread.sleep(retryDelay * 1000);
+                    } catch (InterruptedException ignored) {}
                 }
-            } catch (Exception e) {
-                result = "undefined";
             }
 
             if (result.equalsIgnoreCase("undefined")) {
@@ -116,6 +124,7 @@ public class DateManager implements Listener {
             timezones.put(player.getUniqueId(), result);
             return result;
         }, executorService);
+
 
         futureTimezone.exceptionally(ex -> {
             Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + ex.getMessage());
@@ -139,9 +148,6 @@ public class DateManager implements Listener {
         cache.remove(e.getPlayer().getUniqueId().toString());
     }
 
-    public void setRetryDelay(int delay) {
-        this.retryDelay = delay;
-    }
 }
 
 
