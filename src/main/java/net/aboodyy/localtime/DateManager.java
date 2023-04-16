@@ -28,6 +28,8 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 public class DateManager implements Listener {
 
@@ -38,7 +40,7 @@ public class DateManager implements Listener {
     public DateManager() {
         this.timezones = new HashMap<>();
         this.cache = new HashMap<>();
-        this.retryDelay = retryDelay;
+        this.retryDelay = 5; // default to 5 seconds
     }
 
     public String getDate(String format, String timezone) {
@@ -72,9 +74,8 @@ public class DateManager implements Listener {
             return timezone;
         }
 
-        String finalTimezone = timezone;
-        new Thread(() -> {
-            String timeZone;
+        CompletableFuture<String> futureTimezone = CompletableFuture.supplyAsync(() -> {
+            String result = "undefined";
 
             try {
                 URL api = new URL("https://ipapi.co/" + address.getAddress().getHostAddress() + "/timezone/");
@@ -84,26 +85,34 @@ public class DateManager implements Listener {
                 connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
                 BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                timeZone = bufferedReader.readLine();
+                result = bufferedReader.readLine();
 
-                if (timeZone == null) {
-                    timeZone = "undefined";
+                if (result == null) {
+                    result = "undefined";
                 } else {
-                    cache.put(player.getUniqueId().toString(), timeZone);
+                    cache.put(player.getUniqueId().toString(), result);
                 }
             } catch (Exception e) {
-                timeZone = "undefined";
+                result = "undefined";
             }
 
-            if (timeZone.equalsIgnoreCase("undefined")) {
+            if (result.equalsIgnoreCase("undefined")) {
                 Bukkit.getLogger().info(FAILED);
-                timeZone = finalTimezone;
+                result = TimeZone.getDefault().getID();
             }
 
-            timezones.put(player.getUniqueId(), timeZone);
-        }).start();
+            timezones.put(player.getUniqueId(), result);
+            return result;
+        });
 
-        return timezone;
+        try {
+            return futureTimezone.get(retryDelay, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + e.getMessage());
+            cache.put(player.getUniqueId().toString(), timezone);
+            timezones.put(player.getUniqueId(), timezone);
+            return timezone;
+        }
     }
 
     public void clear() {
@@ -117,4 +126,5 @@ public class DateManager implements Listener {
         timezones.remove(e.getPlayer().getUniqueId());
         cache.remove(e.getPlayer().getUniqueId().toString());
     }
+
 }
