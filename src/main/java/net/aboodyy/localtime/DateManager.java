@@ -27,20 +27,31 @@ import java.net.InetSocketAddress;
 import java.net.URL;
 import java.net.URLConnection;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.Date;
+import java.util.Map;
+import java.util.TimeZone;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class DateManager implements Listener {
 
     private final Map<UUID, String> timezones;
     private final Map<String, String> cache;
+    private final ScheduledExecutorService executorService;
+    private final ConcurrentHashMap<UUID, String> concurrentTimezones;
+    private final ConcurrentHashMap<String, String> concurrentCache;
     private int retryDelay;
 
     public DateManager() {
-        this.timezones = new HashMap<>();
-        this.cache = new HashMap<>();
+        this.concurrentTimezones = new ConcurrentHashMap<>();
+        this.concurrentCache = new ConcurrentHashMap<>();
         this.retryDelay = 5; // default to 5 seconds
+        this.executorService = Executors.newSingleThreadScheduledExecutor();
+        this.timezones = concurrentTimezones;
+        this.cache = concurrentCache;
     }
 
     public String getDate(String format, String timezone) {
@@ -74,6 +85,7 @@ public class DateManager implements Listener {
             return timezone;
         }
 
+        final String timezoneFinal = timezone;
         CompletableFuture<String> futureTimezone = CompletableFuture.supplyAsync(() -> {
             String result = "undefined";
 
@@ -98,21 +110,21 @@ public class DateManager implements Listener {
 
             if (result.equalsIgnoreCase("undefined")) {
                 Bukkit.getLogger().info(FAILED);
-                result = TimeZone.getDefault().getID();
+                result = timezoneFinal;
             }
 
             timezones.put(player.getUniqueId(), result);
             return result;
+        }, executorService);
+
+        futureTimezone.exceptionally(ex -> {
+            Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + ex.getMessage());
+            cache.put(player.getUniqueId().toString(), timezoneFinal);
+            timezones.put(player.getUniqueId(), timezoneFinal);
+            return timezoneFinal;
         });
 
-        try {
-            return futureTimezone.get(retryDelay, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + e.getMessage());
-            cache.put(player.getUniqueId().toString(), timezone);
-            timezones.put(player.getUniqueId(), timezone);
-            return timezone;
-        }
+        return timezoneFinal;
     }
 
     public void clear() {
@@ -127,4 +139,9 @@ public class DateManager implements Listener {
         cache.remove(e.getPlayer().getUniqueId().toString());
     }
 
+    public void setRetryDelay(int delay) {
+        this.retryDelay = delay;
+    }
 }
+
+
