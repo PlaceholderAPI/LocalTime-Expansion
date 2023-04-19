@@ -1,16 +1,21 @@
 /*
+
     LocalTime Expansion - Provides PlaceholderAPI placeholders to give player's local time
     Copyright (C) 2020 aBooDyy
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or
     (at your option) any later version.
+
     This program is distributed in the hope that it will be useful,
     but WITHOUT ANY WARRANTY; without even the implied warranty of
     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
     GNU General Public License for more details.
+
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
  */
 
 package net.aboodyy.localtime;
@@ -41,17 +46,14 @@ public class DateManager implements Listener {
     private final Map<UUID, String> timezones;
     private final Map<String, String> cache;
     private final ScheduledExecutorService executorService;
-    private final ConcurrentHashMap<UUID, String> concurrentTimezones;
-    private final ConcurrentHashMap<String, String> concurrentCache;
     private int retryDelay;
+    private final int cacheExpirationMinutes = 1440; // Cache entries expire after 1440 minutes (1 Day)
 
     public DateManager() {
-        this.concurrentTimezones = new ConcurrentHashMap<>();
-        this.concurrentCache = new ConcurrentHashMap<>();
+        this.timezones = new ConcurrentHashMap<>();
+        this.cache = new ConcurrentHashMap<>();
         this.retryDelay = 5; // default to 5 seconds
         this.executorService = Executors.newSingleThreadScheduledExecutor();
-        this.timezones = concurrentTimezones;
-        this.cache = concurrentCache;
     }
 
     public String getDate(String format, String timezone) {
@@ -63,17 +65,36 @@ public class DateManager implements Listener {
         return dateFormat.format(date);
     }
 
-    public String getTimeZone(Player player) {
-        final String FAILED = "[LocalTime] Couldn't get " + player.getName() + "'s timezone. Will use default timezone.";
-        String timezone = cache.get(player.getUniqueId().toString());
-
-        if (timezone != null) {
-            return timezone;
+    private boolean isCacheExpired(UUID uuid) {
+        String timestampStr = cache.get(uuid.toString() + "_timestamp");
+        if (timestampStr == null) {
+            return true;
         }
 
-        timezone = timezones.get(player.getUniqueId());
+        long timestamp = Long.parseLong(timestampStr);
+        long currentTime = System.currentTimeMillis();
+        long expirationTime = cacheExpirationMinutes * 60 * 1000;
+
+        return (currentTime - timestamp) >= expirationTime;
+    }
+
+    public CompletableFuture<String> getTimeZone(Player player) {
+        final String FAILED = "[LocalTime] Couldn't get " + player.getName() + "'s timezone. Will use default timezone.";
+
+        String cachedTimezone = cache.get(player.getUniqueId().toString());
+        if (cachedTimezone != null) {
+            // If the cached timezone is not expired, return it
+            if (!isCacheExpired(player.getUniqueId())) {
+                return CompletableFuture.completedFuture(cachedTimezone);
+            } else {
+                // If the cached timezone is expired, remove it from the cache
+                cache.remove(player.getUniqueId().toString());
+            }
+        }
+
+        String timezone = timezones.get(player.getUniqueId());
         if (timezone != null) {
-            return timezone;
+            return CompletableFuture.completedFuture(timezone);
         }
 
         InetSocketAddress address = player.getAddress();
@@ -82,7 +103,7 @@ public class DateManager implements Listener {
         if (address == null) {
             Bukkit.getLogger().info(FAILED);
             cache.put(player.getUniqueId().toString(), timezone);
-            return timezone;
+            return CompletableFuture.completedFuture(timezone);
         }
 
         final String timezoneFinal = timezone;
@@ -98,15 +119,18 @@ public class DateManager implements Listener {
                     connection.setReadTimeout(5000);
                     connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
-                    BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    result = bufferedReader.readLine();
+                    // Use try-with-resources to automatically close the BufferedReader
+                    try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                        result = bufferedReader.readLine();
 
-                    if (result == null) {
-                        result = "undefined";
-                    } else {
-                        cache.put(player.getUniqueId().toString(), result);
+                        if (result == null) {
+                            result = "undefined";
+                        } else {
+                            cache.put(player.getUniqueId().toString(), result);
+                            cache.put(player.getUniqueId().toString() + "_timestamp", String.valueOf(System.currentTimeMillis()));
+                        }
+                        break; // exit loop if successful
                     }
-                    break; // exit loop if successful
                 } catch (Exception e) {
                     result = "undefined";
                     Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + e.getMessage());
@@ -133,7 +157,7 @@ public class DateManager implements Listener {
             return timezoneFinal;
         });
 
-        return timezoneFinal;
+        return CompletableFuture.completedFuture(timezoneFinal);
     }
 
     public void clear() {
