@@ -22,9 +22,7 @@ package net.aboodyy.localtime;
 
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -36,10 +34,7 @@ import java.util.Date;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.*;
 
 public class DateManager implements Listener {
 
@@ -54,6 +49,8 @@ public class DateManager implements Listener {
         this.cache = new ConcurrentHashMap<>();
         this.retryDelay = 5; // default to 5 seconds
         this.executorService = Executors.newSingleThreadScheduledExecutor();
+
+        executorService.scheduleAtFixedRate(this::removeExpiredEntries, cacheExpirationMinutes, cacheExpirationMinutes, TimeUnit.MINUTES);
     }
 
     public String getDate(String format, String timezone) {
@@ -75,7 +72,32 @@ public class DateManager implements Listener {
         long currentTime = System.currentTimeMillis();
         long expirationTime = cacheExpirationMinutes * 60 * 1000;
 
-        return (currentTime - timestamp) >= expirationTime;
+        if ((currentTime - timestamp) >= expirationTime) {
+            timezones.remove(uuid); // Remove the player from the timezones map when cache expires
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    private void removeExpiredEntries() {
+        for (Map.Entry<String, String> entry : cache.entrySet()) {
+            if (entry.getKey().endsWith("_timestamp")) {
+                continue; // Skip keys with the "_timestamp" suffix
+            }
+
+            UUID uuid;
+            try {
+                uuid = UUID.fromString(entry.getKey());
+            } catch (IllegalArgumentException e) {
+                continue; // Skip non-UUID keys
+            }
+
+            if (isCacheExpired(uuid)) {
+                cache.remove(uuid.toString());
+                timezones.remove(uuid);
+            }
+        }
     }
 
     public CompletableFuture<String> getTimeZone(Player player) {
@@ -83,13 +105,7 @@ public class DateManager implements Listener {
 
         String cachedTimezone = cache.get(player.getUniqueId().toString());
         if (cachedTimezone != null) {
-            // If the cached timezone is not expired, return it
-            if (!isCacheExpired(player.getUniqueId())) {
-                return CompletableFuture.completedFuture(cachedTimezone);
-            } else {
-                // If the cached timezone is expired, remove it from the cache
-                cache.remove(player.getUniqueId().toString());
-            }
+            return CompletableFuture.completedFuture(cachedTimezone);
         }
 
         String timezone = timezones.get(player.getUniqueId());
@@ -164,14 +180,6 @@ public class DateManager implements Listener {
         timezones.clear();
         cache.clear();
     }
-
-    @SuppressWarnings("unused")
-    @EventHandler
-    public void onLeave(PlayerQuitEvent e) {
-        timezones.remove(e.getPlayer().getUniqueId());
-        cache.remove(e.getPlayer().getUniqueId().toString());
-    }
-
 }
 
 
