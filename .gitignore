@@ -1,9 +1,3 @@
-# Project exclude paths
 /target/
-.idea/compiler.xml
-.idea/discord.xml
-.idea/jarRepositories.xml
-.idea/misc.xml
-.idea/vcs.xml
-.idea/artifacts/Expansion_localtime.xml
-out/artifacts/Expansion_localtime/Expansion-localtime.jar
+.idea/**
+out/
