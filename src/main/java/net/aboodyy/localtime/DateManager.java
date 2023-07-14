@@ -20,6 +20,9 @@
 
 package net.aboodyy.localtime;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
+
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
@@ -39,18 +42,18 @@ import java.util.concurrent.*;
 public class DateManager implements Listener {
 
     private final Map<UUID, String> timezones;
-    private final Map<String, String> cache;
+    private final Cache<String, String> cache;
     private final ScheduledExecutorService executorService;
     private int retryDelay;
     private final int cacheExpirationMinutes = 1440; // Cache entries expire after 1440 minutes (1 Day)
 
     public DateManager() {
         this.timezones = new ConcurrentHashMap<>();
-        this.cache = new ConcurrentHashMap<>();
+        this.cache = CacheBuilder.newBuilder()
+                .expireAfterWrite(cacheExpirationMinutes, TimeUnit.MINUTES)
+                .build();
         this.retryDelay = 5; // default to 5 seconds
         this.executorService = Executors.newSingleThreadScheduledExecutor();
-
-        executorService.scheduleAtFixedRate(this::removeExpiredEntries, cacheExpirationMinutes, cacheExpirationMinutes, TimeUnit.MINUTES);
     }
 
     public String getDate(String format, String timezone) {
@@ -62,48 +65,10 @@ public class DateManager implements Listener {
         return dateFormat.format(date);
     }
 
-    private boolean isCacheExpired(UUID uuid) {
-        String timestampStr = cache.get(uuid.toString() + "_timestamp");
-        if (timestampStr == null) {
-            return true;
-        }
-
-        long timestamp = Long.parseLong(timestampStr);
-        long currentTime = System.currentTimeMillis();
-        long expirationTime = cacheExpirationMinutes * 60 * 1000;
-
-        if ((currentTime - timestamp) >= expirationTime) {
-            timezones.remove(uuid); // Remove the player from the timezones map when cache expires
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    private void removeExpiredEntries() {
-        for (Map.Entry<String, String> entry : cache.entrySet()) {
-            if (entry.getKey().endsWith("_timestamp")) {
-                continue; // Skip keys with the "_timestamp" suffix
-            }
-
-            UUID uuid;
-            try {
-                uuid = UUID.fromString(entry.getKey());
-            } catch (IllegalArgumentException e) {
-                continue; // Skip non-UUID keys
-            }
-
-            if (isCacheExpired(uuid)) {
-                cache.remove(uuid.toString());
-                timezones.remove(uuid);
-            }
-        }
-    }
-
     public CompletableFuture<String> getTimeZone(Player player) {
         final String FAILED = "[LocalTime] Couldn't get " + player.getName() + "'s timezone. Will use default timezone.";
 
-        String cachedTimezone = cache.get(player.getUniqueId().toString());
+        String cachedTimezone = cache.getIfPresent(player.getUniqueId().toString());
         if (cachedTimezone != null) {
             return CompletableFuture.completedFuture(cachedTimezone);
         }
@@ -143,7 +108,6 @@ public class DateManager implements Listener {
                             result = "undefined";
                         } else {
                             cache.put(player.getUniqueId().toString(), result);
-                            cache.put(player.getUniqueId().toString() + "_timestamp", String.valueOf(System.currentTimeMillis()));
                         }
                         break; // exit loop if successful
                     }
@@ -165,7 +129,6 @@ public class DateManager implements Listener {
             return result;
         }, executorService);
 
-
         futureTimezone.exceptionally(ex -> {
             Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + ex.getMessage());
             cache.put(player.getUniqueId().toString(), timezoneFinal);
@@ -178,8 +141,6 @@ public class DateManager implements Listener {
 
     public void clear() {
         timezones.clear();
-        cache.clear();
+        cache.invalidateAll();
     }
 }
-
-
