@@ -79,15 +79,15 @@ public class DateManager implements Listener {
         }
 
         InetSocketAddress address = player.getAddress();
-        timezone = TimeZone.getDefault().getID();
-
         if (address == null) {
             PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, FAILED);
+            timezone = TimeZone.getDefault().getID();
             cache.put(player.getUniqueId().toString(), timezone);
             return CompletableFuture.completedFuture(timezone);
         }
 
-        final String timezoneFinal = timezone;
+        final String defaultTimezone = TimeZone.getDefault().getID();
+
         CompletableFuture<String> futureTimezone = CompletableFuture.supplyAsync(() -> {
             String result = "undefined";
             int retries = 3;
@@ -100,7 +100,6 @@ public class DateManager implements Listener {
                     connection.setReadTimeout(5000);
                     connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
-                    // Use try-with-resources to automatically close the BufferedReader
                     try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
                         result = bufferedReader.readLine();
 
@@ -109,7 +108,7 @@ public class DateManager implements Listener {
                         } else {
                             cache.put(player.getUniqueId().toString(), result);
                         }
-                        break; // exit loop if successful
+                        break;
                     }
                 } catch (Exception e) {
                     result = "undefined";
@@ -122,7 +121,7 @@ public class DateManager implements Listener {
 
             if (result.equalsIgnoreCase("undefined")) {
                 PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, FAILED);
-                result = timezoneFinal;
+                result = defaultTimezone;
             }
 
             timezones.put(player.getUniqueId(), result);
@@ -131,16 +130,20 @@ public class DateManager implements Listener {
 
         futureTimezone.exceptionally(ex -> {
             PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, "[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + ex.getMessage(), ex);
-            cache.put(player.getUniqueId().toString(), timezoneFinal);
-            timezones.put(player.getUniqueId(), timezoneFinal);
-            return timezoneFinal;
+            cache.put(player.getUniqueId().toString(), defaultTimezone);
+            timezones.put(player.getUniqueId(), defaultTimezone);
+            return defaultTimezone;
         });
 
-        return CompletableFuture.completedFuture(timezoneFinal);
+        return futureTimezone;
     }
 
     public void clear() {
         timezones.clear();
         cache.invalidateAll();
+    }
+
+    public void shutdown() {
+        this.executorService.shutdown();
     }
 }

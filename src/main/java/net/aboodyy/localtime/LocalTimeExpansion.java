@@ -70,6 +70,7 @@ public class LocalTimeExpansion extends PlaceholderExpansion implements Cacheabl
     public void clear() {
         dateManager.clear();
         HandlerList.unregisterAll(dateManager);
+        dateManager.shutdown();
     }
 
     @Override
