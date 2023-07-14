@@ -22,8 +22,7 @@ package net.aboodyy.localtime;
 
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
-
-import org.bukkit.Bukkit;
+import me.clip.placeholderapi.PlaceholderAPIPlugin;
 import org.bukkit.entity.Player;
 import org.bukkit.event.Listener;
 
@@ -38,6 +37,7 @@ import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
 import java.util.concurrent.*;
+import java.util.logging.Level;
 
 public class DateManager implements Listener {
 
@@ -82,7 +82,7 @@ public class DateManager implements Listener {
         timezone = TimeZone.getDefault().getID();
 
         if (address == null) {
-            Bukkit.getLogger().info(FAILED);
+            PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, FAILED);
             cache.put(player.getUniqueId().toString(), timezone);
             return CompletableFuture.completedFuture(timezone);
         }
@@ -113,7 +113,7 @@ public class DateManager implements Listener {
                     }
                 } catch (Exception e) {
                     result = "undefined";
-                    Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + e.getMessage());
+                    PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, "[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + e.getMessage(), e);
                     try {
                         Thread.sleep(retryDelay * 1000);
                     } catch (InterruptedException ignored) {}
@@ -121,7 +121,7 @@ public class DateManager implements Listener {
             }
 
             if (result.equalsIgnoreCase("undefined")) {
-                Bukkit.getLogger().info(FAILED);
+                PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, FAILED);
                 result = timezoneFinal;
             }
 
@@ -130,7 +130,7 @@ public class DateManager implements Listener {
         }, executorService);
 
         futureTimezone.exceptionally(ex -> {
-            Bukkit.getLogger().warning("[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + ex.getMessage());
+            PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, "[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + ex.getMessage(), ex);
             cache.put(player.getUniqueId().toString(), timezoneFinal);
             timezones.put(player.getUniqueId(), timezoneFinal);
             return timezoneFinal;
