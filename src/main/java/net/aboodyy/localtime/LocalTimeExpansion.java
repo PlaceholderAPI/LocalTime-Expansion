@@ -30,6 +30,7 @@ import org.bukkit.event.HandlerList;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @SuppressWarnings("unused")
 public class LocalTimeExpansion extends PlaceholderExpansion implements Cacheable, Configurable {
@@ -43,12 +44,12 @@ public class LocalTimeExpansion extends PlaceholderExpansion implements Cacheabl
 
     @Override
     public String getAuthor() {
-        return "aBooDyy";
+        return "aBooDyy, Opal";
     }
 
     @Override
     public String getVersion() {
-        return "1.2";
+        return "1.3";
     }
 
     @Override
@@ -69,6 +70,7 @@ public class LocalTimeExpansion extends PlaceholderExpansion implements Cacheabl
     public void clear() {
         dateManager.clear();
         HandlerList.unregisterAll(dateManager);
+        dateManager.shutdown();
     }
 
     @Override
@@ -82,7 +84,10 @@ public class LocalTimeExpansion extends PlaceholderExpansion implements Cacheabl
             args = identifier.split("time_");
             if (args.length < 2) return null;
 
-            return dateManager.getDate(args[1], dateManager.getTimeZone(p));
+            CompletableFuture<String> timezoneFuture = dateManager.getTimeZone(p);
+            String timezone = timezoneFuture.join();
+
+            return dateManager.getDate(args[1], timezone);
         }
 
         if (identifier.startsWith("timezone_")) {
@@ -99,8 +104,12 @@ public class LocalTimeExpansion extends PlaceholderExpansion implements Cacheabl
             return dateManager.getDate(format, args[1]);
         }
 
-        if (identifier.equalsIgnoreCase("time"))
-            return dateManager.getDate(format, dateManager.getTimeZone(p));
+        if (identifier.equalsIgnoreCase("time")) {
+            CompletableFuture<String> timezoneFuture = dateManager.getTimeZone(p);
+            String timezone = timezoneFuture.join();
+
+            return dateManager.getDate(format, timezone);
+        }
 
         return null;
     }

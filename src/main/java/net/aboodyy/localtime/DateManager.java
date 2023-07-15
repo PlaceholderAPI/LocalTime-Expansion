@@ -20,13 +20,11 @@
 
 package net.aboodyy.localtime;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import me.clip.placeholderapi.PlaceholderAPIPlugin;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
-import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.scheduler.BukkitRunnable;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -34,14 +32,27 @@ import java.net.InetSocketAddress;
 import java.net.URL;
 import java.net.URLConnection;
 import java.text.SimpleDateFormat;
-import java.util.*;
+import java.util.Date;
+import java.util.Map;
+import java.util.TimeZone;
+import java.util.UUID;
+import java.util.concurrent.*;
+import java.util.logging.Level;
 
 public class DateManager implements Listener {
 
     private final Map<UUID, String> timezones;
+    private final Cache<String, String> cache;
+    private final ScheduledExecutorService executorService;
+    private int retryDelay;
 
-    DateManager() {
-        timezones = new HashMap<>();
+    public DateManager() {
+        this.timezones = new ConcurrentHashMap<>();
+        this.cache = CacheBuilder.newBuilder()
+                .expireAfterWrite(1, TimeUnit.DAYS)
+                .build();
+        this.retryDelay = 5; // default to 5 seconds
+        this.executorService = Executors.newSingleThreadScheduledExecutor();
     }
 
     public String getDate(String format, String timezone) {
@@ -53,55 +64,85 @@ public class DateManager implements Listener {
         return dateFormat.format(date);
     }
 
-    public String getTimeZone(Player player) {
+    public CompletableFuture<String> getTimeZone(Player player) {
         final String FAILED = "[LocalTime] Couldn't get " + player.getName() + "'s timezone. Will use default timezone.";
-        String timezone = TimeZone.getDefault().getID();
 
-        if (timezones.containsKey(player.getUniqueId()))
-            return timezones.get(player.getUniqueId());
-
-        InetSocketAddress address = player.getAddress();
-        timezones.put(player.getUniqueId(), timezone);
-
-        if (address == null) {
-            Bukkit.getLogger().info(FAILED);
-            return timezone;
+        String cachedTimezone = cache.getIfPresent(player.getUniqueId().toString());
+        if (cachedTimezone != null) {
+            return CompletableFuture.completedFuture(cachedTimezone);
         }
 
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                String timezone;
+        String timezone = timezones.get(player.getUniqueId());
+        if (timezone != null) {
+            return CompletableFuture.completedFuture(timezone);
+        }
 
+        InetSocketAddress address = player.getAddress();
+        if (address == null) {
+            PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, FAILED);
+            timezone = TimeZone.getDefault().getID();
+            cache.put(player.getUniqueId().toString(), timezone);
+            return CompletableFuture.completedFuture(timezone);
+        }
+
+        final String defaultTimezone = TimeZone.getDefault().getID();
+
+        CompletableFuture<String> futureTimezone = CompletableFuture.supplyAsync(() -> {
+            String result = "undefined";
+            int retries = 3;
+
+            while (retries-- > 0) {
                 try {
                     URL api = new URL("https://ipapi.co/" + address.getAddress().getHostAddress() + "/timezone/");
                     URLConnection connection = api.openConnection();
+                    connection.setConnectTimeout(5000);
+                    connection.setReadTimeout(5000);
+                    connection.setRequestProperty("User-Agent", "Mozilla/5.0");
 
-                    BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    timezone = bufferedReader.readLine();
+                    try (BufferedReader bufferedReader = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                        result = bufferedReader.readLine();
+
+                        if (result == null) {
+                            result = "undefined";
+                        } else {
+                            cache.put(player.getUniqueId().toString(), result);
+                        }
+                        break;
+                    }
                 } catch (Exception e) {
-                    timezone = "undefined";
+                    result = "undefined";
+                    PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, "[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + e.getMessage(), e);
+                    try {
+                        Thread.sleep(retryDelay * 1000);
+                    } catch (InterruptedException ignored) {}
                 }
-
-                if (timezone.equalsIgnoreCase("undefined")) {
-                    Bukkit.getLogger().info(FAILED);
-                    timezone = TimeZone.getDefault().getID();
-                }
-
-                timezones.put(player.getUniqueId(), timezone);
             }
-        }.runTaskAsynchronously(PlaceholderAPIPlugin.getInstance());
 
-        return timezones.get(player.getUniqueId());
+            if (result.equalsIgnoreCase("undefined")) {
+                PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, FAILED);
+                result = defaultTimezone;
+            }
+
+            timezones.put(player.getUniqueId(), result);
+            return result;
+        }, executorService);
+
+        futureTimezone.exceptionally(ex -> {
+            PlaceholderAPIPlugin.getInstance().getLogger().log(Level.WARNING, "[LocalTime] Exception while getting timezone for player " + player.getName() + ": " + ex.getMessage(), ex);
+            cache.put(player.getUniqueId().toString(), defaultTimezone);
+            timezones.put(player.getUniqueId(), defaultTimezone);
+            return defaultTimezone;
+        });
+
+        return futureTimezone;
     }
 
     public void clear() {
         timezones.clear();
+        cache.invalidateAll();
     }
 
-    @SuppressWarnings("unused")
-    @EventHandler
-    public void onLeave(PlayerQuitEvent e) {
-        timezones.remove(e.getPlayer().getUniqueId());
+    public void shutdown() {
+        this.executorService.shutdown();
     }
 }
