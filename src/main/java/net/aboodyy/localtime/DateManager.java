@@ -45,12 +45,11 @@ public class DateManager implements Listener {
     private final Cache<String, String> cache;
     private final ScheduledExecutorService executorService;
     private int retryDelay;
-    private final int cacheExpirationMinutes = 1440; // Cache entries expire after 1440 minutes (1 Day)
 
     public DateManager() {
         this.timezones = new ConcurrentHashMap<>();
         this.cache = CacheBuilder.newBuilder()
-                .expireAfterWrite(cacheExpirationMinutes, TimeUnit.MINUTES)
+                .expireAfterWrite(1, TimeUnit.DAYS)
                 .build();
         this.retryDelay = 5; // default to 5 seconds
         this.executorService = Executors.newSingleThreadScheduledExecutor();
